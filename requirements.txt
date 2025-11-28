@@ -1,0 +1,7 @@
+streamlit
+pdfplumber
+python-docx
+google-genai
+google-generativeai
+pillow
+regex
