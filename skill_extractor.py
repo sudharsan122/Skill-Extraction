@@ -7,14 +7,14 @@ import time
 import tempfile
 from typing import Tuple, List, Optional
 
-# ---------------- CSS (chips + matched/missing variants) ----------------
+# ---------------- CSS (chips + uniform styling) ----------------
 st.markdown(
     """
     <style>
     .skills-container { margin-bottom: 14px; }
     .skills-row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 18px 0; }
     .skill-chip {
-        padding:6px 10px;
+        padding:6px 12px;
         border-radius:999px;
         color:#fff;
         font-weight:600;
@@ -23,6 +23,7 @@ st.markdown(
         box-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
     .cat-title { font-weight:700; margin:6px 0 4px 0; color: #e6eef8; }
+
     /* category colors */
     .lang { background: #1f77b4; }
     .tools { background: #2ca02c; }
@@ -31,21 +32,24 @@ st.markdown(
     .drivers { background: #d62728; }
     .other { background: #7f8c8d; }
 
-    /* matched vs missing */
-    .skill-chip.matched { opacity: 1; }
-    .skill-chip.missing {
-        background: rgba(255,255,255,0.12);
-        color: #222;
-        border: 2px solid rgba(220,53,69,0.9);
-        box-shadow: none;
+    .section-title { font-weight:800; margin-top:10px; margin-bottom:6px; font-size:18px; }
+    /* style Start button */
+    div.stButton > button {
+        background-color:#2E8B57;
+        color:white;
+        font-size:15px;
+        padding:10px 18px;
+        border-radius:8px;
     }
-    .section-title { font-weight:800; margin-top:10px; margin-bottom:6px; }
+    div.stButton > button:hover {
+        background-color:#3CB371;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------- Dependencies used by original script (pdfplumber, python-docx) ----------
+# ---------- Optional dependencies used by original script ----------
 try:
     import pdfplumber
 except Exception:
@@ -56,7 +60,7 @@ try:
 except Exception:
     docx = None
 
-# ---------- Minimal Gemini client wrapper (optional) ----------
+# ---------- Optional Gemini client wrapper ----------
 GEMINI_CLIENT = None
 try:
     from google import genai as _genai
@@ -112,7 +116,7 @@ def extract_text(path: str) -> str:
         return extract_text_from_txt(path)
     raise ValueError("Unsupported file type. Supported: .pdf, .docx, .txt")
 
-# ---------- Keyword list + normalization + categorization (from your script) ----------
+# ---------- Keyword list + normalization + categorization ----------
 BASE_KEYWORDS = [
     "c", "c++", "c#", "python", "java", "javascript", "typescript", "go", "rust", "ruby", "php", "scala", "kotlin", "swift", "r",
     "react", "angular", "vue", "next.js", "svelte", "html", "css", "sass", "tailwind",
@@ -279,7 +283,7 @@ def call_gemini_for_skills(resume_text: str, api_key: str, max_retries=2) -> Tup
 # ---------- Processing a single file (resume or JD) ----------
 def process_resume_file(path: str, api_key: str):
     text = extract_text(path)
-    skills_raw, raw_model = call_gemini_for_skills(text, api_key)
+    skills_raw, _raw_model = call_gemini_for_skills(text, api_key)
     if skills_raw is None:
         found = []
         text_low = text.lower()
@@ -312,7 +316,6 @@ def process_resume_file(path: str, api_key: str):
     return {
         "all_skills": final,
         "categories": categories,
-        "raw_model_output_preview": (raw_model or "")[:1000],
     }
 
 # ---------- Streamlit UI ----------
@@ -321,8 +324,8 @@ st.title("JD vs Resumes — Skill Matcher")
 
 st.markdown(
     """
-Upload a **single Job Description (JD)** file (pdf, docx, txt), then upload one or more **resumes**.
-The app extracts skills from JD and each resume, then shows which JD skills are **matched** (present in resume) and which are **missing**.
+Upload a **single Job Description (JD)** file (pdf, docx, txt) and one or more **resumes** (pdf, docx, txt).
+Click **Start Searching** to extract skills from the JD and each resume, then show Matched and Missing skills per resume.
 """
 )
 
@@ -332,38 +335,72 @@ if api_key:
 else:
     st.info("No Gemini API key found — falling back to local keyword scanner.")
 
-# Uploaders: JD (single) and Resumes (multiple)
-jd_file = st.file_uploader("Upload Job Description (single file)", type=["pdf", "docx", "txt"], accept_multiple_files=False)
-resume_files = st.file_uploader("Upload Resumes (one or more)", type=["pdf", "docx", "txt"], accept_multiple_files=True)
+# --- Two-column layout for JD + Resume Uploads ---
+col1, col2 = st.columns(2)
 
-if jd_file is None:
-    st.warning("Upload a Job Description (JD) to compare resumes against.")
-else:
-    # save JD to temp and process
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(jd_file.name)[1]) as tmp:
-        tmp.write(jd_file.read())
-        jd_tmp = tmp.name
-    try:
-        jd_out = process_resume_file(jd_tmp, api_key)
-    except Exception as e:
-        st.error(f"Failed to process JD: {e}")
-        jd_out = None
-    finally:
-        try:
-            os.remove(jd_tmp)
-        except Exception:
-            pass
+with col1:
+    st.subheader("Job Description (JD)")
+    jd_file = st.file_uploader("Upload JD", type=["pdf", "docx", "txt"], accept_multiple_files=False)
 
-    if jd_out:
-        jd_skills = set(jd_out["all_skills"])
-        st.markdown(f"**JD skills detected:** {len(jd_skills)}")
-        if jd_skills:
-            st.write(", ".join(sorted(jd_skills)))
+with col2:
+    st.subheader("Resumes")
+    resume_files = st.file_uploader("Upload Resumes", type=["pdf", "docx", "txt"], accept_multiple_files=True)
+
+# Start button
+start = st.button("🚀 Start Searching", use_container_width=True)
+
+# When the button is pressed we run processing
+if start:
+    if jd_file is None:
+        st.warning("Please upload a Job Description (JD) file.")
+    elif not resume_files:
+        st.warning("Please upload at least one Resume.")
     else:
-        jd_skills = set()
+        # ---------- JD processing ----------
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(jd_file.name)[1]) as tmp:
+            tmp.write(jd_file.read())
+            jd_tmp = tmp.name
 
-    # If resumes uploaded, process each and compare
-    if resume_files:
+        try:
+            jd_out = process_resume_file(jd_tmp, api_key)
+        except Exception as e:
+            st.error(f"Failed to process JD: {e}")
+            jd_out = None
+        finally:
+            try:
+                os.remove(jd_tmp)
+            except:
+                pass
+
+        jd_skills = set(jd_out["all_skills"]) if jd_out else set()
+        st.markdown(f"### JD Skills ({len(jd_skills)})")
+        if jd_skills:
+            # show JD skills as chips too
+            st.markdown('<div class="skills-container">', unsafe_allow_html=True)
+            display_order = [
+                ("languages", "Programming / Languages", "lang"),
+                ("tools", "Tools & Devops", "tools"),
+                ("protocols", "Protocols & Interfaces", "protocols"),
+                ("platforms", "Platforms & Embedded", "platforms"),
+                ("drivers", "Drivers / Firmware", "drivers"),
+                ("other", "Other", "other"),
+            ]
+            for key, pretty, css_class in display_order:
+                items = jd_out["categories"].get(key, [])
+                if not items:
+                    continue
+                st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
+                chips_html = '<div class="skills-row">'
+                for s in items:
+                    safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
+                chips_html += '</div>'
+                st.markdown(chips_html, unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.write("_No skills detected in JD._")
+
+        # ---------- Resume processing ----------
         results = {}
         with st.spinner("Processing resumes..."):
             for f in resume_files:
@@ -379,10 +416,10 @@ else:
                 finally:
                     try:
                         os.remove(tmp_path)
-                    except Exception:
+                    except:
                         pass
 
-        # display per resume: matched and missing (grouped by category, chips)
+        # ---------- Display per-resume (matched and missing chips) ----------
         for fname, out in results.items():
             st.header(fname)
             if "error" in out:
@@ -390,12 +427,9 @@ else:
                 continue
 
             resume_skills = set(out.get("all_skills", []))
-
-            # compute matched/missing with respect to JD
             matched = sorted(list(resume_skills & jd_skills))
             missing = sorted(list(jd_skills - resume_skills))
 
-            # helper to build category dicts
             def categorize_list(arr):
                 ret = {"languages": [], "tools": [], "protocols": [], "platforms": [], "drivers": [], "other": []}
                 for s in arr:
@@ -425,7 +459,7 @@ else:
                     chips_html = '<div class="skills-row">'
                     for s in items:
                         safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        chips_html += f'<div class="skill-chip {css_class} matched">{safe_s}</div>'
+                        chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
                     chips_html += '</div>'
                     st.markdown(chips_html, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -451,7 +485,7 @@ else:
                     chips_html = '<div class="skills-row">'
                     for s in items:
                         safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        chips_html += f'<div class="skill-chip {css_class} missing">{safe_s}</div>'
+                        chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
                     chips_html += '</div>'
                     st.markdown(chips_html, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
