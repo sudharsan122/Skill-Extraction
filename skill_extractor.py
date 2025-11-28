@@ -71,6 +71,27 @@ st.markdown(
     .platforms { background: #9467bd; }
     .drivers { background: #d62728; }
     .other { background: #7f8c8d; }
+    /* Highlight header row */
+    .table-header {
+        font-size: 20px !important;
+        font-weight: 800 !important;
+        color: #ffffff !important;
+        padding: 8px 0px;
+    }
+
+    /* Highlight resume name */
+    .resume-name {
+        font-size: 17px !important;
+        font-weight: 700 !important;
+        color: #00b4ff !important;     /* light-blue highlight */
+        padding-top: 6px;
+    }
+
+    /* Optional: stronger highlight */
+    .resume-name:hover {
+        color: #33c9ff !important;
+        transition: 0.2s;
+    }
 
     .section-title { font-weight:800; margin-top:10px; margin-bottom:6px; font-size:18px; }
     /* style Start button */
