@@ -7,6 +7,7 @@ import time
 import tempfile
 from typing import Tuple, List, Optional
 
+# ---------------- CSS (chips + matched/missing variants) ----------------
 st.markdown(
     """
     <style>
@@ -19,16 +20,26 @@ st.markdown(
         font-weight:600;
         font-size:14px;
         font-family: "Inter", "Arial", sans-serif;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
     .cat-title { font-weight:700; margin:6px 0 4px 0; color: #e6eef8; }
-    /* category colors (tweak hex as you like) */
+    /* category colors */
     .lang { background: #1f77b4; }
     .tools { background: #2ca02c; }
-    .protocols { background: #ff7f0e; }
+    .protocols { background: #ff7f0e; color:#111; }
     .platforms { background: #9467bd; }
     .drivers { background: #d62728; }
     .other { background: #7f8c8d; }
+
+    /* matched vs missing */
+    .skill-chip.matched { opacity: 1; }
+    .skill-chip.missing {
+        background: rgba(255,255,255,0.12);
+        color: #222;
+        border: 2px solid rgba(220,53,69,0.9);
+        box-shadow: none;
+    }
+    .section-title { font-weight:800; margin-top:10px; margin-bottom:6px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -46,8 +57,6 @@ except Exception:
     docx = None
 
 # ---------- Minimal Gemini client wrapper (optional) ----------
-# We'll try to import the same client used in your script. If missing or key missing,
-# the app will fallback to the local keyword scan.
 GEMINI_CLIENT = None
 try:
     from google import genai as _genai
@@ -57,18 +66,16 @@ except Exception:
 
 # ---------- KEY RETRIEVAL ----------
 def get_gemini_key() -> str:
-    # 1) Streamlit Cloud secrets (secrets.toml)
     try:
         if "GEMINI_API_KEY" in st.secrets:
             return st.secrets["GEMINI_API_KEY"]
     except Exception:
         pass
-    # 2) Environment variable
     if os.getenv("GEMINI_API_KEY"):
         return os.getenv("GEMINI_API_KEY")
     return ""
 
-# ---------- Text extraction (copied/adapted from your script) ----------
+# ---------- Text extraction ----------
 def extract_text_from_pdf(path: str) -> str:
     if pdfplumber is None:
         raise RuntimeError("Install pdfplumber: pip install pdfplumber")
@@ -105,7 +112,7 @@ def extract_text(path: str) -> str:
         return extract_text_from_txt(path)
     raise ValueError("Unsupported file type. Supported: .pdf, .docx, .txt")
 
-# ---------- Local keyword list (same as your script) ----------
+# ---------- Keyword list + normalization + categorization (from your script) ----------
 BASE_KEYWORDS = [
     "c", "c++", "c#", "python", "java", "javascript", "typescript", "go", "rust", "ruby", "php", "scala", "kotlin", "swift", "r",
     "react", "angular", "vue", "next.js", "svelte", "html", "css", "sass", "tailwind",
@@ -123,7 +130,6 @@ BASE_KEYWORDS = [
     "linux", "bash", "shell", "systemd", "sysvinit", "excel", "tableau", "power bi", "docker-compose"
 ]
 
-# ---------- Normalization logic (adapted) ----------
 NORMALIZE_MAP = {
     "react.js": "react",
     "reactjs": "react",
@@ -179,7 +185,6 @@ def dedupe_preserve_order(items: List[str]) -> List[str]:
             out.append(x)
     return out
 
-# ---------- Categorization sets (same categories) ----------
 LANGUAGES = {"c", "c++", "c#", "python", "java", "javascript", "typescript", "go", "rust", "ruby", "php", "scala", "kotlin", "swift", "r"}
 TOOLS = {"git", "gdb", "cmake", "make", "gcc", "clang", "vivado", "quartus", "jtag", "docker", "helm", "ansible"}
 PROTOCOLS = {"i2c", "spi", "uart", "gpio", "pcie", "usb", "ethernet", "can", "i2s", "wi-fi", "wifi", "lte", "bluetooth"}
@@ -213,7 +218,7 @@ def categorize_skill(skill: str) -> str:
         return "languages"
     return "other"
 
-# ---------- Gemini prompt builder (same rules) ----------
+# ---------- Gemini prompt builder & caller ----------
 def build_skills_prompt(resume_text: str, max_chars=15000) -> str:
     if len(resume_text) > max_chars:
         resume_text = resume_text[:max_chars]
@@ -235,14 +240,12 @@ Resume:
     return prompt
 
 def call_gemini_for_skills(resume_text: str, api_key: str, max_retries=2) -> Tuple[Optional[List[str]], str]:
-
     if not api_key or GEMINI_CLIENT is None:
         return None, ""
     prompt = build_skills_prompt(resume_text)
     try:
         client = GEMINI_CLIENT.Client(api_key=api_key)
     except Exception:
-        # some installs use genai.Client(...) or google.generativeai, try alternative
         try:
             GEMINI_CLIENT.configure(api_key=api_key)
             client = GEMINI_CLIENT
@@ -273,20 +276,17 @@ def call_gemini_for_skills(resume_text: str, api_key: str, max_retries=2) -> Tup
                 continue
             return None, "<error: {}>".format(e)
 
-# ---------- Processing a single resume file ----------
+# ---------- Processing a single file (resume or JD) ----------
 def process_resume_file(path: str, api_key: str):
     text = extract_text(path)
-
     skills_raw, raw_model = call_gemini_for_skills(text, api_key)
     if skills_raw is None:
-        # fallback local keyword scanner
         found = []
         text_low = text.lower()
         for kw in BASE_KEYWORDS:
             if re.search(r'\b' + re.escape(kw) + r'\b', text_low):
                 found.append(kw)
         skills_raw = found
-
     normalized = []
     for s in skills_raw:
         if not isinstance(s, str):
@@ -295,9 +295,7 @@ def process_resume_file(path: str, api_key: str):
         if not tok:
             continue
         normalized.append(tok)
-
     normalized = dedupe_preserve_order(normalized)
-
     final = []
     for s in normalized:
         s2 = s.strip()
@@ -307,103 +305,155 @@ def process_resume_file(path: str, api_key: str):
         s2 = re.sub(r'\s+', ' ', s2).strip()
         final.append(s2)
     final = dedupe_preserve_order(final)
-
     categories = {"languages": [], "tools": [], "protocols": [], "platforms": [], "drivers": [], "other": []}
     for s in final:
         cat = categorize_skill(s)
         categories[cat].append(s)
-
     return {
         "all_skills": final,
         "categories": categories,
         "raw_model_output_preview": (raw_model or "")[:1000],
-        "text_snippet": text[:2000]
     }
 
 # ---------- Streamlit UI ----------
-st.set_page_config(page_title="Skill Extractor", layout="wide")
-st.title("Resume Skill Extractor (PDF, DOCX, TXT)")
+st.set_page_config(page_title="JD vs Resumes — Skill Matcher", layout="wide")
+st.title("JD vs Resumes — Skill Matcher")
 
 st.markdown(
     """
-Upload one or more resumes (.pdf, .docx, .txt).  
-The app will attempt to use the Gemini model if a key is set in `st.secrets` or the `GEMINI_API_KEY` environment variable.
-If no valid key/client is available, the app falls back to a local keyword-based extraction.
+Upload a **single Job Description (JD)** file (pdf, docx, txt), then upload one or more **resumes**.
+The app extracts skills from JD and each resume, then shows which JD skills are **matched** (present in resume) and which are **missing**.
 """
 )
-
-uploaded = st.file_uploader("Upload resumes", type=["pdf", "docx", "txt"], accept_multiple_files=True)
 
 api_key = get_gemini_key()
 if api_key:
     st.success("Gemini API key found (will attempt model extraction).")
 else:
-    st.info("No Gemini API key found — falling back to local keyword scanner. To enable model-based extraction, add GEMINI_API_KEY to Streamlit Secrets or an environment variable.")
+    st.info("No Gemini API key found — falling back to local keyword scanner.")
 
-if uploaded:
-    results = {}
-    with st.spinner("Processing..."):
-        for f in uploaded:
-            # save to temp file because pdfplumber / docx need file path
-            suffix = os.path.splitext(f.name)[1].lower()
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(f.read())
-                tmp_path = tmp.name
-            try:
-                out = process_resume_file(tmp_path, api_key)
-                results[f.name] = out
-            except Exception as e:
-                results[f.name] = {"error": str(e)}
-            finally:
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
+# Uploaders: JD (single) and Resumes (multiple)
+jd_file = st.file_uploader("Upload Job Description (single file)", type=["pdf", "docx", "txt"], accept_multiple_files=False)
+resume_files = st.file_uploader("Upload Resumes (one or more)", type=["pdf", "docx", "txt"], accept_multiple_files=True)
 
-    # Clean, styled, horizontal chips grouped by category
-for fname, out in results.items():
-    st.header(f"Extracted Skills — {fname}")
-
-    if "error" in out:
-        st.error(out["error"])
-        continue
-
-    skills = out.get("all_skills", [])
-    categories = out.get("categories", {})
-
-    if not skills:
-        st.warning("No skills found.")
-        continue
-
-    # Option: show a single-line comma-separated summary on top (optional)
-    # st.write(", ".join(skills))
-
-    # Ordered categories to show and label mapping
-    display_order = [
-        ("languages", "Programming / Languages", "lang"),
-        ("tools", "Tools & Devops", "tools"),
-        ("protocols", "Protocols & Interfaces", "protocols"),
-        ("platforms", "Platforms & Embedded", "platforms"),
-        ("drivers", "Drivers / Firmware", "drivers"),
-        ("other", "Other", "other"),
-    ]
-
-    st.markdown('<div class="skills-container">', unsafe_allow_html=True)
-    for key, pretty, css_class in display_order:
-        items = categories.get(key, [])
-        if not items:
-            continue
-        # category title
-        st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
-        # chips row
-        chips_html = '<div class="skills-row">'
-        for s in items:
-            safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
-        chips_html += '</div>'
-        st.markdown(chips_html, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
+if jd_file is None:
+    st.warning("Upload a Job Description (JD) to compare resumes against.")
 else:
-    st.info("Upload one or more resume files to start.")
+    # save JD to temp and process
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(jd_file.name)[1]) as tmp:
+        tmp.write(jd_file.read())
+        jd_tmp = tmp.name
+    try:
+        jd_out = process_resume_file(jd_tmp, api_key)
+    except Exception as e:
+        st.error(f"Failed to process JD: {e}")
+        jd_out = None
+    finally:
+        try:
+            os.remove(jd_tmp)
+        except Exception:
+            pass
+
+    if jd_out:
+        jd_skills = set(jd_out["all_skills"])
+        st.markdown(f"**JD skills detected:** {len(jd_skills)}")
+        if jd_skills:
+            st.write(", ".join(sorted(jd_skills)))
+    else:
+        jd_skills = set()
+
+    # If resumes uploaded, process each and compare
+    if resume_files:
+        results = {}
+        with st.spinner("Processing resumes..."):
+            for f in resume_files:
+                suffix = os.path.splitext(f.name)[1].lower()
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(f.read())
+                    tmp_path = tmp.name
+                try:
+                    out = process_resume_file(tmp_path, api_key)
+                    results[f.name] = out
+                except Exception as e:
+                    results[f.name] = {"error": str(e)}
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+
+        # display per resume: matched and missing (grouped by category, chips)
+        for fname, out in results.items():
+            st.header(fname)
+            if "error" in out:
+                st.error(out["error"])
+                continue
+
+            resume_skills = set(out.get("all_skills", []))
+
+            # compute matched/missing with respect to JD
+            matched = sorted(list(resume_skills & jd_skills))
+            missing = sorted(list(jd_skills - resume_skills))
+
+            # helper to build category dicts
+            def categorize_list(arr):
+                ret = {"languages": [], "tools": [], "protocols": [], "platforms": [], "drivers": [], "other": []}
+                for s in arr:
+                    cat = categorize_skill(s)
+                    ret[cat].append(s)
+                return ret
+
+            matched_cat = categorize_list(matched)
+            missing_cat = categorize_list(missing)
+
+            st.markdown('<div class="section-title">Matched skills</div>', unsafe_allow_html=True)
+            if matched:
+                st.markdown('<div class="skills-container">', unsafe_allow_html=True)
+                display_order = [
+                    ("languages", "Programming / Languages", "lang"),
+                    ("tools", "Tools & Devops", "tools"),
+                    ("protocols", "Protocols & Interfaces", "protocols"),
+                    ("platforms", "Platforms & Embedded", "platforms"),
+                    ("drivers", "Drivers / Firmware", "drivers"),
+                    ("other", "Other", "other"),
+                ]
+                for key, pretty, css_class in display_order:
+                    items = matched_cat.get(key, [])
+                    if not items:
+                        continue
+                    st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
+                    chips_html = '<div class="skills-row">'
+                    for s in items:
+                        safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        chips_html += f'<div class="skill-chip {css_class} matched">{safe_s}</div>'
+                    chips_html += '</div>'
+                    st.markdown(chips_html, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.write("_No matched skills found._")
+
+            st.markdown('<div class="section-title">Missing skills (from JD)</div>', unsafe_allow_html=True)
+            if missing:
+                st.markdown('<div class="skills-container">', unsafe_allow_html=True)
+                display_order = [
+                    ("languages", "Programming / Languages", "lang"),
+                    ("tools", "Tools & Devops", "tools"),
+                    ("protocols", "Protocols & Interfaces", "protocols"),
+                    ("platforms", "Platforms & Embedded", "platforms"),
+                    ("drivers", "Drivers / Firmware", "drivers"),
+                    ("other", "Other", "other"),
+                ]
+                for key, pretty, css_class in display_order:
+                    items = missing_cat.get(key, [])
+                    if not items:
+                        continue
+                    st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
+                    chips_html = '<div class="skills-row">'
+                    for s in items:
+                        safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        chips_html += f'<div class="skill-chip {css_class} missing">{safe_s}</div>'
+                    chips_html += '</div>'
+                    st.markdown(chips_html, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.write("_No missing JD skills — resume covers all JD skills._")
