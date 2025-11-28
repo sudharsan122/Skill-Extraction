@@ -7,6 +7,46 @@ import time
 import tempfile
 from typing import Tuple, List, Optional
 
+st.markdown("""
+<style>
+
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: #0e1117 !important;
+    color: #ffffff !important;
+}
+
+[data-testid="stHeader"] {
+    background-color: #0e1117 !important;
+}
+
+[data-testid="stSidebar"] {
+    background-color: #0e1117 !important;
+    color: #ffffff !important;
+}
+
+h1, h2, h3, h4, h5, h6, p, span, div, label {
+    color: #ffffff !important;
+}
+
+/* force dark scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #1a1e24;
+}
+::-webkit-scrollbar-thumb {
+    background: #3a3f47;
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #4d535c;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
 # ---------------- CSS (chips + uniform styling) ----------------
 st.markdown(
     """
