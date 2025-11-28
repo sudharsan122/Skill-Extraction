@@ -7,6 +7,33 @@ import time
 import tempfile
 from typing import Tuple, List, Optional
 
+st.markdown(
+    """
+    <style>
+    .skills-container { margin-bottom: 14px; }
+    .skills-row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 18px 0; }
+    .skill-chip {
+        padding:6px 10px;
+        border-radius:999px;
+        color:#fff;
+        font-weight:600;
+        font-size:14px;
+        font-family: "Inter", "Arial", sans-serif;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+    .cat-title { font-weight:700; margin:6px 0 4px 0; color: #e6eef8; }
+    /* category colors (tweak hex as you like) */
+    .lang { background: #1f77b4; }
+    .tools { background: #2ca02c; }
+    .protocols { background: #ff7f0e; }
+    .platforms { background: #9467bd; }
+    .drivers { background: #d62728; }
+    .other { background: #7f8c8d; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ---------- Dependencies used by original script (pdfplumber, python-docx) ----------
 try:
     import pdfplumber
@@ -333,19 +360,50 @@ if uploaded:
                 except Exception:
                     pass
 
-    # Clean output: show ONLY the extracted skills
-    for fname, out in results.items():
-        st.header(f"Extracted Skills — {fname}")
+    # Clean, styled, horizontal chips grouped by category
+for fname, out in results.items():
+    st.header(f"Extracted Skills — {fname}")
 
-        if "error" in out:
-            st.error(out["error"])
+    if "error" in out:
+        st.error(out["error"])
+        continue
+
+    skills = out.get("all_skills", [])
+    categories = out.get("categories", {})
+
+    if not skills:
+        st.warning("No skills found.")
+        continue
+
+    # Option: show a single-line comma-separated summary on top (optional)
+    # st.write(", ".join(skills))
+
+    # Ordered categories to show and label mapping
+    display_order = [
+        ("languages", "Programming / Languages", "lang"),
+        ("tools", "Tools & Devops", "tools"),
+        ("protocols", "Protocols & Interfaces", "protocols"),
+        ("platforms", "Platforms & Embedded", "platforms"),
+        ("drivers", "Drivers / Firmware", "drivers"),
+        ("other", "Other", "other"),
+    ]
+
+    st.markdown('<div class="skills-container">', unsafe_allow_html=True)
+    for key, pretty, css_class in display_order:
+        items = categories.get(key, [])
+        if not items:
             continue
+        # category title
+        st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
+        # chips row
+        chips_html = '<div class="skills-row">'
+        for s in items:
+            safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
+        chips_html += '</div>'
+        st.markdown(chips_html, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        if out["all_skills"]:
-            st.success("Skills extracted successfully:")
-            st.write(out["all_skills"])
-        else:
-            st.warning("No skills found.")
 
 else:
     st.info("Upload one or more resume files to start.")
