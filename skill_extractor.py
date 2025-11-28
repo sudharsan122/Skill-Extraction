@@ -419,75 +419,111 @@ if start:
                     except:
                         pass
 
-        # ---------- Display per-resume (matched and missing chips) ----------
-        for fname, out in results.items():
-            st.header(fname)
-            if "error" in out:
-                st.error(out["error"])
-                continue
+        # ---------- Display results in table-like rows ----------
+# header row
+hcol1, hcol2, hcol3, hcol4 = st.columns([1.2, 2, 4, 4])
+hcol1.markdown("**Resume**")
+hcol2.markdown("**Sections**")
+hcol3.markdown("**Matching Skills**")
+hcol4.markdown("**Missing Skills**")
 
-            resume_skills = set(out.get("all_skills", []))
-            matched = sorted(list(resume_skills & jd_skills))
-            missing = sorted(list(jd_skills - resume_skills))
+# ordering and display metadata
+display_order = [
+    ("languages", "Programming / Languages", "lang"),
+    ("tools", "Tools & Devops", "tools"),
+    ("protocols", "Protocols & Interfaces", "protocols"),
+    ("platforms", "Platforms & Embedded", "platforms"),
+    ("drivers", "Drivers / Firmware", "drivers"),
+    ("other", "Other", "other"),
+]
 
-            def categorize_list(arr):
-                ret = {"languages": [], "tools": [], "protocols": [], "platforms": [], "drivers": [], "other": []}
-                for s in arr:
-                    cat = categorize_skill(s)
-                    ret[cat].append(s)
-                return ret
+def render_sections_column(col, categories_dict):
+    """
+    Renders the category titles horizontally as small chips in a column `col`.
+    """
+    # build inline HTML for section chips
+    chips = '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">'
+    for key, pretty, css_class in display_order:
+        items = categories_dict.get(key, [])
+        if not items:
+            continue
+        # small section chip (slightly smaller than skill chips)
+        chips += f'<div class="skill-chip {css_class}" style="padding:4px 8px; font-size:12px; font-weight:700;">{pretty} — {len(items)}</div>'
+    chips += '</div>'
+    col.markdown(chips, unsafe_allow_html=True)
 
-            matched_cat = categorize_list(matched)
-            missing_cat = categorize_list(missing)
+def render_skills_grouped(col, cat_dict):
+    """
+    Renders grouped skills (dict keyed by category) into the provided Streamlit column.
+    Groups are shown in the same order as display_order.
+    """
+    html = '<div class="skills-container">'
+    for key, pretty, css_class in display_order:
+        items = cat_dict.get(key, [])
+        if not items:
+            continue
+        html += f'<div class="cat-title">{pretty} — {len(items)}</div>'
+        html += '<div class="skills-row">'
+        for s in items:
+            safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
+        html += '</div>'
+    html += '</div>'
+    col.markdown(html, unsafe_allow_html=True)
 
-            st.markdown('<div class="section-title">Matched skills</div>', unsafe_allow_html=True)
-            if matched:
-                st.markdown('<div class="skills-container">', unsafe_allow_html=True)
-                display_order = [
-                    ("languages", "Programming / Languages", "lang"),
-                    ("tools", "Tools & Devops", "tools"),
-                    ("protocols", "Protocols & Interfaces", "protocols"),
-                    ("platforms", "Platforms & Embedded", "platforms"),
-                    ("drivers", "Drivers / Firmware", "drivers"),
-                    ("other", "Other", "other"),
-                ]
-                for key, pretty, css_class in display_order:
-                    items = matched_cat.get(key, [])
-                    if not items:
-                        continue
-                    st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
-                    chips_html = '<div class="skills-row">'
-                    for s in items:
-                        safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
-                    chips_html += '</div>'
-                    st.markdown(chips_html, unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.write("_No matched skills found._")
+# loop over resumes and show one row per resume
+for fname, out in results.items():
+    # set up four columns per resume row
+    col_resume, col_sections, col_matched, col_missing = st.columns([1.2, 2, 4, 4])
 
-            st.markdown('<div class="section-title">Missing skills (from JD)</div>', unsafe_allow_html=True)
-            if missing:
-                st.markdown('<div class="skills-container">', unsafe_allow_html=True)
-                display_order = [
-                    ("languages", "Programming / Languages", "lang"),
-                    ("tools", "Tools & Devops", "tools"),
-                    ("protocols", "Protocols & Interfaces", "protocols"),
-                    ("platforms", "Platforms & Embedded", "platforms"),
-                    ("drivers", "Drivers / Firmware", "drivers"),
-                    ("other", "Other", "other"),
-                ]
-                for key, pretty, css_class in display_order:
-                    items = missing_cat.get(key, [])
-                    if not items:
-                        continue
-                    st.markdown(f'<div class="cat-title">{pretty} — {len(items)}</div>', unsafe_allow_html=True)
-                    chips_html = '<div class="skills-row">'
-                    for s in items:
-                        safe_s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        chips_html += f'<div class="skill-chip {css_class}">{safe_s}</div>'
-                    chips_html += '</div>'
-                    st.markdown(chips_html, unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.write("_No missing JD skills — resume covers all JD skills._")
+    # column 1: resume name
+    col_resume.markdown(f"**{fname}**")
+
+    if "error" in out:
+        col_matched.error(out["error"])
+        # show empty sections / missing
+        col_sections.write("")
+        col_missing.write("")
+        continue
+
+    resume_skills = set(out.get("all_skills", []))
+    matched = sorted(list(resume_skills & jd_skills)) if jd_skills else sorted(list(resume_skills))
+    missing = sorted(list(jd_skills - resume_skills)) if jd_skills else []
+
+    # categorize lists
+    def categorize_list(arr):
+        ret = {"languages": [], "tools": [], "protocols": [], "platforms": [], "drivers": [], "other": []}
+        for s in arr:
+            cat = categorize_skill(s)
+            ret[cat].append(s)
+        return ret
+
+    matched_cat = categorize_list(matched)
+    missing_cat = categorize_list(missing)
+
+    # column 2: sections (show which sections appear in resume or JD)
+    # We'll build a combined view: sections present in either JD or resume (for helpful context)
+    combined_sections = {"languages": [], "tools": [], "protocols": [], "platforms": [], "drivers": [], "other": []}
+    # prefer JD categories if JD provided, else resume categories (so numbers make sense)
+    if jd_skills:
+        # use jd_out categories presence
+        for k in combined_sections.keys():
+            combined_sections[k] = jd_out["categories"].get(k, [])
+    else:
+        # fallback to resume categories
+        combined_sections = categorize_list(list(resume_skills))
+
+    render_sections_column(col_sections, combined_sections)
+
+    # column 3: matched skills grouped by category (chips)
+    if matched:
+        render_skills_grouped(col_matched, matched_cat)
+    else:
+        col_matched.write("_No matched skills._")
+
+    # column 4: missing skills grouped by category (chips)
+    if missing:
+        render_skills_grouped(col_missing, missing_cat)
+    else:
+        col_missing.write("_No missing JD skills._")
+
