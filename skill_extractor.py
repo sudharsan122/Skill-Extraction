@@ -513,8 +513,6 @@ for fname, out in results.items():
         # fallback to resume categories
         combined_sections = categorize_list(list(resume_skills))
 
-    render_sections_column(col_sections, combined_sections)
-
     # column 3: matched skills grouped by category (chips)
     if matched:
         render_skills_grouped(col_matched, matched_cat)
