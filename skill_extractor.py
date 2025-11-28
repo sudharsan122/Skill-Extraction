@@ -333,30 +333,19 @@ if uploaded:
                 except Exception:
                     pass
 
-    # show results per file
+    # Clean output: show ONLY the extracted skills
     for fname, out in results.items():
-        st.header(fname)
+        st.header(f"Extracted Skills — {fname}")
+
         if "error" in out:
             st.error(out["error"])
             continue
-        cols = st.columns([1, 2])
-        with cols[0]:
-            st.subheader("All skills")
-            if out["all_skills"]:
-                st.write(out["all_skills"])
-            else:
-                st.write("No skills found.")
-            st.subheader("Categories")
-            for cat, items in out["categories"].items():
-                st.markdown(f"**{cat.title()} ({len(items)})**")
-                if items:
-                    st.write(items)
-                else:
-                    st.write("_none_")
-        with cols[1]:
-            st.subheader("Model raw preview / snippet")
-            st.code(out.get("raw_model_output_preview", "(none)"))
-            st.subheader("Text snippet (first 2k chars)")
-            st.text(out.get("text_snippet", ""))
+
+        if out["all_skills"]:
+            st.success("Skills extracted successfully:")
+            st.write(out["all_skills"])
+        else:
+            st.warning("No skills found.")
+
 else:
     st.info("Upload one or more resume files to start.")
