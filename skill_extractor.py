@@ -178,22 +178,7 @@ def extract_text(path: str) -> str:
     raise ValueError("Unsupported file type. Supported: .pdf, .docx, .txt")
 
 # ---------- Keyword list + normalization + categorization ----------
-BASE_KEYWORDS = [
-    "c", "c++", "c#", "python", "java", "javascript", "typescript", "go", "rust", "ruby", "php", "scala", "kotlin", "swift", "r",
-    "react", "angular", "vue", "next.js", "svelte", "html", "css", "sass", "tailwind",
-    "node.js", "express", "django", "flask", "spring boot", "spring", "laravel", "asp.net",
-    "sql", "postgresql", "mysql", "mongodb", "redis", "oracle", "mssql", "cassandra",
-    "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ansible", "helm",
-    "jenkins", "github actions", "gitlab-ci", "circleci",
-    "pandas", "numpy", "scikit-learn", "tensorflow", "pytorch", "xgboost", "lightgbm", "nlp", "opencv", "spacy",
-    "spark", "hadoop", "etl", "airflow",
-    "embedded linux", "yocto", "petalinux", "u-boot", "device tree", "kernel", "linux kernel", "bsp",
-    "arm", "raspberry pi", "stm32", "nxp", "imx", "qualcomm",
-    "i2c", "spi", "uart", "gpio", "pcie", "usb", "ethernet", "can", "i2s",
-    "board bring-up", "firmware", "bootloader", "driver development", "kernel drivers", "device drivers",
-    "git", "gdb", "cmake", "make", "gcc", "clang", "vivado", "quartus", "jtag",
-    "linux", "bash", "shell", "systemd", "sysvinit", "excel", "tableau", "power bi", "docker-compose"
-]
+
 
 NORMALIZE_MAP = {
     "react.js": "react",
@@ -348,9 +333,9 @@ def process_resume_file(path: str, api_key: str):
     if skills_raw is None:
         found = []
         text_low = text.lower()
-        for kw in BASE_KEYWORDS:
-            if re.search(r'\b' + re.escape(kw) + r'\b', text_low):
-                found.append(kw)
+        #for kw in BASE_KEYWORDS:
+        #    if re.search(r'\b' + re.escape(kw) + r'\b', text_low):
+        #        found.append(kw)
         skills_raw = found
     normalized = []
     for s in skills_raw:
